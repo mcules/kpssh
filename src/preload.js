@@ -1,8 +1,12 @@
 'use strict';
 
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webUtils, clipboard } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  // clipboard (Electron's module — reliable on file:// where navigator.clipboard is flaky)
+  clipboardRead: () => clipboard.readText(),
+  clipboardWrite: (text) => clipboard.writeText(String(text == null ? '' : text)),
+
   // sessions
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   saveSession: (s) => ipcRenderer.invoke('sessions:save', s),

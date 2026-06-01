@@ -433,6 +433,34 @@ function ensureTerm(sessionId) {
   const fit = new FitAddonCtor();
   term.loadAddon(fit);
   term.open(el);
+
+  // --- copy / paste -------------------------------------------------------
+  const copySelection = () => {
+    const sel = term.getSelection();
+    if (sel) { api.clipboardWrite(sel); term.clearSelection(); return true; }
+    return false;
+  };
+  const pasteClipboard = () => {
+    const text = api.clipboardRead();
+    if (text) term.paste(text); // routed through onData → sshInput (respects bracketed paste)
+  };
+  // Keyboard: Ctrl+Shift+C / Ctrl+Shift+V (always copy/paste), plus the
+  // Windows convention where Ctrl+C copies *only* when there's a selection
+  // (otherwise it falls through as SIGINT) and Ctrl+V pastes.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown' || !e.ctrlKey) return true;
+    if (e.shiftKey && e.code === 'KeyC') { copySelection(); return false; }
+    if (e.shiftKey && e.code === 'KeyV') { pasteClipboard(); return false; }
+    if (!e.shiftKey && e.code === 'KeyC' && term.hasSelection()) { copySelection(); return false; }
+    if (!e.shiftKey && e.code === 'KeyV') { pasteClipboard(); return false; }
+    return true;
+  });
+  // Right-click: copy selection if present, otherwise paste (PuTTY-style).
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (!copySelection()) pasteClipboard();
+  });
+
   term.onData((d) => {
     if (multiExec && sessionId === activeId) {
       // broadcast to every connected session
