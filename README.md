@@ -26,29 +26,39 @@ master password never touches this app.
   - **SSH agent**: keys served by the KeePassXC SSH agent
 - Create/update KeePassXC entries (username + password) directly from the app
 
-## Requirements
-- Node.js 18+ (to run from source or build)
-- KeePassXC with **Browser Integration enabled**
-  (Tools → Settings → Browser Integration → "Enable browser integration";
-  no specific browser checkbox is required).
+## Install & run
 
-## Run
+### Download the portable .exe (recommended)
+Grab the latest **`kpssh-<version>-portable.exe`** from the
+[**Releases**](https://github.com/mcules/kpssh/releases/latest) page. It is a
+single, self-contained Windows executable — **no Node.js, no installation**.
+Just double-click to run; settings are stored in your app data folder
+(changeable via Tools → Settings).
+
+### Run from source (alternative)
+Requires **Node.js 18+**:
 ```bash
 npm install
 npm start
 ```
-On first credential lookup KeePassXC shows a pairing dialog — give the
-connection a name and allow it. The association is stored under the data
-directory and reused afterwards.
 
-## Build a standalone Windows executable
+### Either way you need KeePassXC
+KeePassXC must be running with the database **unlocked** and **Browser
+Integration enabled** (Tools → Settings → Browser Integration → "Enable browser
+integration"; no specific browser checkbox is required).
+
+On the first credential lookup KeePassXC shows a pairing dialog — give the
+connection a name and allow it. The association is stored in the data directory
+and reused afterwards.
+
+## Build it yourself
 ```bash
 npm run dist:portable    # single-file dist/kpssh-<version>-portable.exe
 npm run dist:installer   # NSIS setup.exe
 npm run pack             # unpacked folder (dist/win-unpacked)
 ```
-Tagged releases (`vX.Y.Z`) build a portable `.exe` automatically via GitHub
-Actions and attach it to the release.
+Pushing a version tag (`vX.Y.Z`) builds the portable `.exe` automatically via
+GitHub Actions and attaches it to a new release.
 
 ## How auth works
 
