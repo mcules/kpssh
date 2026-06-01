@@ -4,6 +4,10 @@ A small SSH/SFTP client (Electron) that pulls credentials from a
 **running, unlocked KeePassXC** via its browser-integration protocol — your
 master password never touches this app.
 
+📖 **[Usage guide with screenshots →](docs/USAGE.md)**
+
+![kpssh](docs/img/main.png)
+
 ## Features
 - Session manager (host / port / user / auth method), tabbed terminals (xterm.js)
 - Integrated **SFTP browser**: drag-and-drop upload, recursive folder up/download,
