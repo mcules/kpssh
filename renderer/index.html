@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>kpssh</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <nav id="edgeTabs">
+      <button class="edge-tab active" data-pane="sessions">Sessions</button>
+      <button class="edge-tab" data-pane="sftp">Sftp</button>
+    </nav>
+
+    <aside id="sidebar" class="pane">
+      <div class="sb-head">
+        <span>Sessions</span>
+        <button id="newSession" title="New session">+</button>
+      </div>
+      <ul id="sessionList"></ul>
+    </aside>
+
+    <div id="sftpPanel" class="pane pane-hidden">
+      <div class="sftp-bar">
+        <button id="sftpUp" class="ic" title="Up">↑</button>
+        <button id="sftpHome" class="ic" title="Home">⌂</button>
+        <button id="sftpRefresh" class="ic" title="Refresh">⟳</button>
+        <button id="sftpMkdir" class="ic" title="New folder">＋</button>
+        <span class="spacer"></span>
+        <button id="sftpUpload" class="ic" title="Upload files">⬆</button>
+        <button id="sftpDownload" class="ic" title="Download selected">⬇</button>
+        <button id="sftpDelete" class="ic danger-text" title="Delete selected">🗑</button>
+      </div>
+      <div id="sftpPath" title=""></div>
+      <ul id="sftpList"></ul>
+      <div id="sftpHint" class="sftp-hint">Connect a session to browse files.</div>
+      <div id="sftpDrop" class="sftp-drop hidden">Drop files to upload</div>
+      <div id="sftpXfers" class="sftp-xfers hidden"></div>
+      <label class="sftp-follow" title="Browser follows the terminal's current directory (needs an OSC-7 capable shell)">
+        <input type="checkbox" id="sftpFollow" /> Follow terminal folder
+      </label>
+    </div>
+
+    <main id="main">
+      <div id="tabs"></div>
+      <div id="multiExecBar" class="hidden">⚡ Multi-exec ON — keystrokes go to ALL connected sessions</div>
+      <div id="terminalArea">
+        <div id="placeholder">Select a session, or create one with “+”.</div>
+        <div id="terminal"></div>
+      </div>
+    </main>
+  </div>
+
+  <footer id="statusbar">
+    <span class="kp-status" id="kpStatus">KeePassXC: checking…</span>
+    <button id="kpAssociate" class="ghost hidden">Pair with KeePassXC</button>
+    <span class="spacer"></span>
+  </footer>
+
+  <!-- global alias manager -->
+  <div id="aliasEditor" class="modal hidden">
+    <div class="modal-card">
+      <h3>Global aliases</h3>
+      <small>Defined on every SSH session right after connect (POSIX shells: bash/zsh/sh). Example: <code>ll</code> → <code>ls -alF</code></small>
+      <div id="aliasRows" class="alias-rows"></div>
+      <button id="aliasAdd" class="ghost">+ Add alias</button>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button id="aliasCancel" class="ghost">Cancel</button>
+        <button id="aliasSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- settings -->
+  <div id="settingsEditor" class="modal hidden">
+    <div class="modal-card">
+      <h3>Settings</h3>
+      <label>Data directory (JSON files)
+        <div class="row">
+          <input id="set_dataDir" class="grow" readonly />
+          <button id="set_dataBrowse" class="ghost" type="button">Browse…</button>
+        </div>
+      </label>
+      <small>Default: app data folder. Where sessions/aliases/macros/settings JSON live.</small>
+      <label class="check"><input type="checkbox" id="set_dataMove" checked /> Move existing files to the new folder</label>
+      <label class="check"><input type="checkbox" id="set_syntax" /> Syntax highlighting (global default)</label>
+      <div class="modal-actions">
+        <span id="set_msg" class="muted-msg"></span>
+        <span class="spacer"></span>
+        <button id="set_cancel" class="ghost">Cancel</button>
+        <button id="set_save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- macros manager -->
+  <div id="macroEditor" class="modal hidden">
+    <div class="modal-card">
+      <h3>Macros</h3>
+      <small>Named command snippets. Run from <code>Tools → Macros</code>; the script is sent to the active session.</small>
+      <div id="macroRows" class="macro-rows"></div>
+      <button id="macroAdd" class="ghost">+ Add macro</button>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button id="macroCancel" class="ghost">Cancel</button>
+        <button id="macroSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- remote file editor -->
+  <div id="fileEditor" class="modal hidden">
+    <div class="modal-card wide">
+      <h3 id="fileEditorTitle">Edit file</h3>
+      <textarea id="fileEditorText" class="code" spellcheck="false"></textarea>
+      <div class="modal-actions">
+        <span id="fileEditorMsg" class="muted-msg"></span>
+        <span class="spacer"></span>
+        <button id="fileEditorCancel" class="ghost">Close</button>
+        <button id="fileEditorSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- right-click context menu for the file list -->
+  <div id="ctxMenu" class="ctx-menu hidden">
+    <div class="ctx-item" data-act="edit">Edit</div>
+    <div class="ctx-item" data-act="download">Download</div>
+    <div class="ctx-item" data-act="rename">Rename</div>
+    <div class="ctx-item" data-act="delete">Delete</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-act="mkdir">New folder</div>
+    <div class="ctx-item" data-act="refresh">Refresh</div>
+  </div>
+
+  <!-- session editor -->
+  <div id="editor" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="editorTitle">New session</h3>
+      <label>Name <input id="f_name" /></label>
+      <div class="row">
+        <label class="grow">Host <input id="f_host" placeholder="server.example.com" /></label>
+        <label class="w80">Port <input id="f_port" value="22" /></label>
+      </div>
+      <label>Username <input id="f_user" placeholder="(optional if from KeePass)" /></label>
+      <label>Auth method
+        <select id="f_auth">
+          <option value="keepass-password">KeePass — password</option>
+          <option value="keepass-key">KeePass — private key (string field)</option>
+          <option value="agent">SSH agent (KeePassXC SSH agent)</option>
+        </select>
+      </label>
+      <div class="auth-keepass">
+        <label>KeePass match URL (optional) <input id="f_kpurl" placeholder="blank → ssh://&lt;host&gt;" /></label>
+        <small>Blank = ssh://&lt;host&gt;. Put this exact URL on the KeePass entry (URL field or Additional URLs). Use an FQDN; custom fields like "hostname" can't be matched.</small>
+        <details class="adv">
+          <summary>Create / update KeePassXC entry</summary>
+          <label>Password <input id="f_kppass" type="password" placeholder="(stored in KeePassXC, not here)" /></label>
+          <button id="kpCreateEntry" class="ghost" type="button">Save credentials to KeePassXC</button>
+          <small>Creates an entry with URL = match URL (or ssh://&lt;host&gt;), login = username, and this password. KeePassXC may ask to confirm.</small>
+        </details>
+      </div>
+      <div class="auth-key hidden">
+        <div class="row">
+          <label class="grow">Key field <input id="f_keyfield" value="privateKey" /></label>
+          <label class="grow">Passphrase field <input id="f_passfield" placeholder="(blank → entry password)" /></label>
+        </div>
+        <small>Stored as custom string field "KPH: &lt;name&gt;" in KeePass.</small>
+      </div>
+      <div class="auth-agent hidden">
+        <label>Agent path <input id="f_agent" placeholder="\\.\pipe\openssh-ssh-agent" /></label>
+        <small>Leave blank to use the platform default.</small>
+      </div>
+
+      <details class="adv">
+        <summary>Jump host (gateway)</summary>
+        <div class="row">
+          <label class="grow">Jump host <input id="f_jhost" placeholder="(none — direct connect)" /></label>
+          <label class="w80">Port <input id="f_jport" value="22" /></label>
+        </div>
+        <div class="row">
+          <label class="grow">Jump username <input id="f_juser" /></label>
+          <label class="grow">Jump auth
+            <select id="f_jauth">
+              <option value="agent">SSH agent</option>
+              <option value="keepass-password">KeePass — password</option>
+              <option value="keepass-key">KeePass — private key</option>
+            </select>
+          </label>
+        </div>
+        <small>Connects via this host first (ssh -J). Jump creds resolve from KeePass via ssh://&lt;jump-host&gt;.</small>
+      </details>
+
+      <details class="adv">
+        <summary>SSH tunnels (port forwarding)</summary>
+        <div id="tunnelRows" class="tunnel-rows"></div>
+        <button id="tunnelAdd" class="ghost" type="button">+ Add tunnel</button>
+        <small>Local: listen on your PC, forward to dst via server. Remote: listen on server, forward to dst from your PC.</small>
+      </details>
+
+      <label>Syntax highlighting
+        <select id="f_syntax">
+          <option value="default">Default (global setting)</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </label>
+
+      <div class="modal-actions">
+        <button id="editorDelete" class="danger">Delete</button>
+        <span class="spacer"></span>
+        <button id="editorCancel" class="ghost">Cancel</button>
+        <button id="editorSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
