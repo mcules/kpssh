@@ -26,6 +26,7 @@ const els = {
   editorDelete: document.getElementById('editorDelete'),
   f: {
     name: document.getElementById('f_name'),
+    group: document.getElementById('f_group'),
     host: document.getElementById('f_host'),
     port: document.getElementById('f_port'),
     user: document.getElementById('f_user'),
@@ -99,6 +100,7 @@ let currentPane = 'sessions';     // active left pane: 'sessions' | 'sftp' | nul
 const autoShownSftp = new Set();  // sessions whose browser auto-popped once
 let multiExec = false;            // broadcast keystrokes to all sessions
 let settings = { syntaxHighlight: true, fontSize: 13 };
+const collapsedGroups = new Set();   // group names currently collapsed in the sidebar
 let fileEditPath = null;          // remote path open in the file editor
 
 // --- KeePass status --------------------------------------------------------
@@ -137,21 +139,186 @@ async function loadSessions() {
   renderSessions();
 }
 
+// A session's `group` field is a path: segments separated by "/", e.g.
+// "Kunden/Acme/Prod". Split into clean segments (empty groups -> top level).
+const GROUP_SEP = '/';
+function groupSegments(s) {
+  return (s.group || '').split(GROUP_SEP).map((x) => x.trim()).filter(Boolean);
+}
+
+// Render one session <li>, indented to its tree depth.
+function sessionLi(s, depth) {
+  const li = document.createElement('li');
+  if (s.id === activeId) li.classList.add('active');
+  li.style.paddingLeft = (10 + depth * 14) + 'px';
+  li.innerHTML =
+    `<span><b>${esc(s.name || s.host)}</b> <span class="edit" data-edit="${s.id}">✎</span></span>` +
+    `<span class="host">${esc(s.username || '')}@${esc(s.host)}:${esc(String(s.port || 22))}</span>`;
+  li.addEventListener('click', (e) => {
+    if (e.target.dataset.edit) { openEditor(s.id); return; }
+    openSession(s.id);
+  });
+  makeDraggable(li, { kind: 'session', id: s.id });
+  makeDropTarget(li, s.group ? s.group.trim() : ''); // drop here = same group as this session
+  return li;
+}
+
+// Build a tree from the sessions' group paths.
+// node = { children: Map<name,node>, sessions: [], path, count }
+function buildSessionTree() {
+  const root = { children: new Map(), sessions: [], path: '', count: 0 };
+  for (const s of sessions) {
+    const segs = groupSegments(s);
+    let node = root;
+    node.count++;
+    let path = '';
+    for (const seg of segs) {
+      path = path ? path + GROUP_SEP + seg : seg;
+      if (!node.children.has(seg)) {
+        node.children.set(seg, { children: new Map(), sessions: [], path, count: 0 });
+      }
+      node = node.children.get(seg);
+      node.count++;
+    }
+    node.sessions.push(s);
+  }
+  return root;
+}
+
+// Sessions render as a collapsible tree. A node shows its sub-groups first
+// (sorted), then its own direct sessions. Root's direct sessions (ungrouped)
+// appear at the very top with no header.
 function renderSessions() {
   els.sessionList.innerHTML = '';
-  for (const s of sessions) {
-    const li = document.createElement('li');
-    if (s.id === activeId) li.classList.add('active');
-    li.innerHTML =
-      `<span><b>${esc(s.name || s.host)}</b> <span class="edit" data-edit="${s.id}">✎</span></span>` +
-      `<span class="host">${esc(s.username || '')}@${esc(s.host)}:${esc(String(s.port || 22))}</span>`;
-    li.addEventListener('click', (e) => {
-      if (e.target.dataset.edit) { openEditor(s.id); return; }
-      openSession(s.id);
-    });
-    els.sessionList.appendChild(li);
-  }
+  const root = buildSessionTree();
+
+  const renderNode = (node, depth) => {
+    for (const name of [...node.children.keys()].sort((a, b) => a.localeCompare(b))) {
+      const child = node.children.get(name);
+      const collapsed = collapsedGroups.has(child.path);
+      const head = document.createElement('li');
+      head.className = 'group-head' + (collapsed ? ' collapsed' : '');
+      head.style.paddingLeft = (8 + depth * 14) + 'px';
+      head.innerHTML =
+        `<span class="caret">${collapsed ? '▸' : '▾'}</span>` +
+        `<span class="g-name">${esc(name)}</span>` +
+        `<span class="g-count">${child.count}</span>`;
+      head.addEventListener('click', () => toggleGroup(child.path));
+      makeDraggable(head, { kind: 'group', path: child.path });
+      makeDropTarget(head, child.path); // drop here = move into this group
+      els.sessionList.appendChild(head);
+      if (!collapsed) renderNode(child, depth + 1);
+    }
+    for (const s of node.sessions) els.sessionList.appendChild(sessionLi(s, depth));
+  };
+
+  // Ungrouped (root.sessions) first, then the group tree.
+  for (const s of root.sessions) els.sessionList.appendChild(sessionLi(s, 0));
+  renderNode(root, 0);
 }
+
+// Fill the editor's <datalist> with every existing group path AND each of its
+// parent paths, so sub-groups are easy to extend (e.g. "Kunden", "Kunden/Acme").
+function refreshGroupList() {
+  const paths = new Set();
+  for (const s of sessions) {
+    const segs = groupSegments(s);
+    let path = '';
+    for (const seg of segs) { path = path ? path + GROUP_SEP + seg : seg; paths.add(path); }
+  }
+  document.getElementById('groupList').innerHTML =
+    [...paths].sort().map((n) => `<option value="${esc(n)}"></option>`).join('');
+}
+
+// Collapse/expand a group node (keyed by full path); persisted in settings.
+function toggleGroup(path) {
+  if (collapsedGroups.has(path)) collapsedGroups.delete(path);
+  else collapsedGroups.add(path);
+  renderSessions();
+  api.saveSettings({ collapsedGroups: [...collapsedGroups] }).catch(() => {});
+}
+
+// --- drag & drop: move sessions / re-parent groups -------------------------
+
+let dragItem = null; // { kind:'session', id } | { kind:'group', path }
+
+// Move one session into a group path ('' = ungrouped).
+async function moveSession(id, newGroup) {
+  const s = sessions.find((x) => x.id === id);
+  if (!s || (s.group || '') === newGroup) return;
+  s.group = newGroup;
+  await api.saveSession(s);
+  await loadSessions();
+}
+
+// Re-parent a whole group subtree under destParent ('' = top level). Rewrites
+// the path prefix of every session in the subtree. No-ops on cycles.
+async function moveGroup(srcPath, destParent) {
+  if (destParent === srcPath || destParent.startsWith(srcPath + GROUP_SEP)) return; // into itself
+  const leaf = srcPath.split(GROUP_SEP).pop();
+  const newPrefix = destParent ? destParent + GROUP_SEP + leaf : leaf;
+  if (newPrefix === srcPath) return;
+  const affected = sessions.filter((s) => {
+    const g = s.group || '';
+    return g === srcPath || g.startsWith(srcPath + GROUP_SEP);
+  });
+  if (!affected.length) return;
+  for (const s of affected) {
+    s.group = newPrefix + s.group.slice(srcPath.length);
+    await api.saveSession(s);
+  }
+  // carry the collapsed state across the rename
+  if (collapsedGroups.has(srcPath)) { collapsedGroups.delete(srcPath); collapsedGroups.add(newPrefix); }
+  await loadSessions();
+}
+
+// Apply whatever is being dragged onto a target group path ('' = root).
+function dropOnto(targetPath) {
+  if (!dragItem) return;
+  if (dragItem.kind === 'session') moveSession(dragItem.id, targetPath);
+  else if (dragItem.kind === 'group') moveGroup(dragItem.path, targetPath);
+  dragItem = null;
+}
+
+// Make an element a drag source.
+function makeDraggable(el, item) {
+  el.draggable = true;
+  el.addEventListener('dragstart', (e) => {
+    dragItem = item;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.kind + ':' + (item.id || item.path));
+    e.stopPropagation();
+  });
+  el.addEventListener('dragend', () => { dragItem = null; });
+}
+
+// Make an element a drop target for the given group path.
+function makeDropTarget(el, targetPath) {
+  el.addEventListener('dragover', (e) => {
+    if (!dragItem) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    el.classList.add('drop-target');
+    e.stopPropagation();
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    el.classList.remove('drop-target');
+    dropOnto(targetPath);
+  });
+}
+
+// The list background itself is the "ungrouped / top level" drop target.
+els.sessionList.addEventListener('dragover', (e) => {
+  if (dragItem) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+});
+els.sessionList.addEventListener('drop', (e) => {
+  if (!dragItem) return;
+  e.preventDefault();
+  dropOnto('');
+});
 
 // --- session editor --------------------------------------------------------
 
@@ -168,6 +335,8 @@ function openEditor(id) {
   const s = sessions.find((x) => x.id === id) || {};
   els.editorTitle.textContent = id ? 'Edit session' : 'New session';
   els.f.name.value = s.name || '';
+  els.f.group.value = s.group || '';
+  refreshGroupList();
   els.f.host.value = s.host || '';
   els.f.port.value = s.port || 22;
   els.f.user.value = s.username || '';
@@ -257,6 +426,7 @@ els.editorSave.addEventListener('click', async () => {
   const s = {
     id: editingId || undefined,
     name: els.f.name.value.trim(),
+    group: els.f.group.value.trim(),
     host: els.f.host.value.trim(),
     port: Number(els.f.port.value) || 22,
     username: els.f.user.value.trim(),
@@ -980,8 +1150,11 @@ if (!api) {
   els.kpStatus.className = 'kp-status err';
 } else {
   refreshKpStatus();
-  loadSessions();
-  api.getSettings().then((s) => { settings = s; }).catch(() => {});
+  api.getSettings().then((s) => {
+    settings = s;
+    (s.collapsedGroups || []).forEach((g) => collapsedGroups.add(g));
+    loadSessions(); // render after collapse state is known
+  }).catch(() => { loadSessions(); });
 }
 
 })();

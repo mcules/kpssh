@@ -144,6 +144,9 @@
     <div class="modal-card">
       <h3 id="editorTitle">New session</h3>
       <label>Name <input id="f_name" /></label>
+      <label>Group <input id="f_group" list="groupList" placeholder="(optional — e.g. Kunden/Acme/Prod)" /></label>
+      <datalist id="groupList"></datalist>
+      <small>Use “/” to nest groups, e.g. <code>Kunden/Acme/Prod</code>. Blank = no group.</small>
       <div class="row">
         <label class="grow">Host <input id="f_host" placeholder="server.example.com" /></label>
         <label class="w80">Port <input id="f_port" value="22" /></label>
