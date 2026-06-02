@@ -1,6 +1,6 @@
 {
   "name": "kpssh",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SSH/SFTP client that pulls credentials from a running KeePassXC instance (browser-integration protocol).",
   "main": "src/main.js",
   "scripts": {
