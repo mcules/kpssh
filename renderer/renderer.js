@@ -55,6 +55,7 @@ const els = {
   setDataBrowse: document.getElementById('set_dataBrowse'),
   setDataMove: document.getElementById('set_dataMove'),
   setSyntax: document.getElementById('set_syntax'),
+  setFontSize: document.getElementById('set_fontSize'),
   setMsg: document.getElementById('set_msg'),
   setCancel: document.getElementById('set_cancel'),
   setSave: document.getElementById('set_save'),
@@ -97,7 +98,7 @@ let followTerminal = false;       // mirror the shell's cwd (via OSC 7)
 let currentPane = 'sessions';     // active left pane: 'sessions' | 'sftp' | null (collapsed)
 const autoShownSftp = new Set();  // sessions whose browser auto-popped once
 let multiExec = false;            // broadcast keystrokes to all sessions
-let settings = { syntaxHighlight: true };
+let settings = { syntaxHighlight: true, fontSize: 13 };
 let fileEditPath = null;          // remote path open in the file editor
 
 // --- KeePass status --------------------------------------------------------
@@ -426,7 +427,7 @@ function ensureTerm(sessionId) {
   els.terminal.appendChild(el);
   const term = new TerminalCtor({
     fontFamily: 'Consolas, "Cascadia Mono", monospace',
-    fontSize: 13,
+    fontSize: clampFontSize(settings.fontSize),
     theme: { background: '#000000' },
     cursorBlink: true,
   });
@@ -455,6 +456,10 @@ function ensureTerm(sessionId) {
     if (e.shiftKey && e.code === 'KeyV') { e.preventDefault(); pasteClipboard(); return false; }
     if (!e.shiftKey && e.code === 'KeyC' && term.hasSelection()) { copySelection(); return false; }
     if (!e.shiftKey && e.code === 'KeyV') { e.preventDefault(); pasteClipboard(); return false; }
+    // Font zoom: Ctrl+= (and Ctrl++) / Ctrl+- / Ctrl+0 reset.
+    if (e.code === 'Equal' || e.code === 'NumpadAdd') { e.preventDefault(); setFontSize(settings.fontSize + 1); return false; }
+    if (e.code === 'Minus' || e.code === 'NumpadSubtract') { e.preventDefault(); setFontSize(settings.fontSize - 1); return false; }
+    if (e.code === 'Digit0' || e.code === 'Numpad0') { e.preventDefault(); setFontSize(13); return false; }
     return true;
   });
   // Right-click: copy selection if present, otherwise paste (PuTTY-style).
@@ -614,6 +619,7 @@ api.onMenuMultiexec(() => {
 api.onSettingsChanged((s) => {
   settings = s;
   els.setSyntax.checked = settings.syntaxHighlight !== false;
+  for (const t of terms.values()) { t.term.options.fontSize = clampFontSize(settings.fontSize); t.fit.fit(); }
 });
 
 // --- settings dialog -------------------------------------------------------
@@ -624,6 +630,7 @@ async function openSettings() {
   els.setDataDir.dataset.default = cfg.default;
   els.setDataMove.checked = true;
   els.setSyntax.checked = settings.syntaxHighlight !== false;
+  els.setFontSize.value = clampFontSize(settings.fontSize);
   els.setMsg.textContent = '';
   els.settingsEditor.classList.remove('hidden');
 }
@@ -636,7 +643,11 @@ els.setDataBrowse.addEventListener('click', async () => {
 els.setCancel.addEventListener('click', () => els.settingsEditor.classList.add('hidden'));
 els.setSave.addEventListener('click', async () => {
   els.setMsg.textContent = 'Saving…';
-  settings = await api.saveSettings({ syntaxHighlight: els.setSyntax.checked });
+  settings = await api.saveSettings({
+    syntaxHighlight: els.setSyntax.checked,
+    fontSize: clampFontSize(els.setFontSize.value),
+  });
+  for (const t of terms.values()) { t.term.options.fontSize = settings.fontSize; t.fit.fit(); }
   const r = await api.configSetDir(els.setDataDir.value, els.setDataMove.checked);
   if (!r.ok) { els.setMsg.textContent = 'Data dir failed: ' + r.error; return; }
   els.settingsEditor.classList.add('hidden');
@@ -696,6 +707,24 @@ function syncSftp() {
 function refitActive() {
   const t = terms.get(activeId);
   if (t) setTimeout(() => t.fit.fit(), 0);
+}
+
+// Keep the font size sane regardless of where it came from (settings file,
+// dialog input, zoom shortcut).
+function clampFontSize(n) {
+  const v = Math.round(Number(n) || 13);
+  return Math.min(40, Math.max(6, v));
+}
+
+// Apply a font size to every open terminal, refit, and persist it.
+function setFontSize(px) {
+  const size = clampFontSize(px);
+  settings.fontSize = size;
+  for (const t of terms.values()) {
+    t.term.options.fontSize = size;
+    t.fit.fit();
+  }
+  api.saveSettings({ fontSize: size }).catch(() => {});
 }
 
 function remotePathOf(name) {

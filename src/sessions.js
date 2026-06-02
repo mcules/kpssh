@@ -60,7 +60,7 @@ function makeStore(userDataDir) {
     },
 
     // App settings (e.g. global syntax highlighting). Defaults merged in.
-    getSettings: () => ({ syntaxHighlight: true, ...readJson(settingsFile, {}) }),
+    getSettings: () => ({ syntaxHighlight: true, fontSize: 13, ...readJson(settingsFile, {}) }),
     saveSettings(s) {
       const cur = readJson(settingsFile, {});
       const next = { ...cur, ...(s || {}) };

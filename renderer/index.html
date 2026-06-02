@@ -86,6 +86,10 @@
       <small>Default: app data folder. Where sessions/aliases/macros/settings JSON live.</small>
       <label class="check"><input type="checkbox" id="set_dataMove" checked /> Move existing files to the new folder</label>
       <label class="check"><input type="checkbox" id="set_syntax" /> Syntax highlighting (global default)</label>
+      <label>Terminal font size
+        <input id="set_fontSize" type="number" min="6" max="40" step="1" class="w80" />
+      </label>
+      <small>Pixels. Also adjustable live with Ctrl+= / Ctrl+- (Ctrl+0 resets to 13).</small>
       <div class="modal-actions">
         <span id="set_msg" class="muted-msg"></span>
         <span class="spacer"></span>
