@@ -94,7 +94,7 @@ const sftpSelected = new Set();   // selected item names
 let lastClickIdx = -1;            // anchor for shift-select
 let sftpHomeDir = null;           // first resolved dir, used by the Home button
 let followTerminal = false;       // mirror the shell's cwd (via OSC 7)
-let currentPane = 'sessions';     // active left pane: 'sessions' | 'sftp'
+let currentPane = 'sessions';     // active left pane: 'sessions' | 'sftp' | null (collapsed)
 const autoShownSftp = new Set();  // sessions whose browser auto-popped once
 let multiExec = false;            // broadcast keystrokes to all sessions
 let settings = { syntaxHighlight: true };
@@ -449,10 +449,12 @@ function ensureTerm(sessionId) {
   // (otherwise it falls through as SIGINT) and Ctrl+V pastes.
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown' || !e.ctrlKey) return true;
+    // preventDefault on paste so the browser's native paste into xterm's
+    // textarea doesn't fire on top of our explicit term.paste() (double paste).
     if (e.shiftKey && e.code === 'KeyC') { copySelection(); return false; }
-    if (e.shiftKey && e.code === 'KeyV') { pasteClipboard(); return false; }
+    if (e.shiftKey && e.code === 'KeyV') { e.preventDefault(); pasteClipboard(); return false; }
     if (!e.shiftKey && e.code === 'KeyC' && term.hasSelection()) { copySelection(); return false; }
-    if (!e.shiftKey && e.code === 'KeyV') { pasteClipboard(); return false; }
+    if (!e.shiftKey && e.code === 'KeyV') { e.preventDefault(); pasteClipboard(); return false; }
     return true;
   });
   // Right-click: copy selection if present, otherwise paste (PuTTY-style).
@@ -587,18 +589,18 @@ api.onSshStatus(({ sessionId, state, error }) => {
   renderTabs();
   if (sessionId === activeId) {
     syncSftp();
-    // the SFTP browser pops up on connect (once per session)
+    // collapse the left panel on connect (once per session); user opens SFTP via the tab
     if (state === 'ready' && !autoShownSftp.has(sessionId)) {
       autoShownSftp.add(sessionId);
-      setPane('sftp');
+      setPane(null);
     }
   }
 });
 
-// edge tabs: switch the left pane
+// edge tabs: switch the left pane, or collapse it when its tab is clicked again
 els.edgeTabs.addEventListener('click', (e) => {
   const b = e.target.closest('.edge-tab');
-  if (b) setPane(b.dataset.pane);
+  if (b) setPane(b.dataset.pane === currentPane ? null : b.dataset.pane);
 });
 
 // --- multi-exec / settings / tunnels --------------------------------------
@@ -657,6 +659,7 @@ const sftpDirBySession = new Map(); // sessionId -> last browsed dir
 const sftpHomeBySession = new Map(); // sessionId -> first resolved dir
 
 // Switch the left panel between the Sessions tree and the Sftp browser.
+// Pass null to collapse the panel entirely (only the edge-tab strip stays).
 function setPane(pane) {
   currentPane = pane;
   els.sidebar.classList.toggle('pane-hidden', pane !== 'sessions');

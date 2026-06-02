@@ -31,6 +31,7 @@ function createWindow() {
     width: 1180,
     height: 760,
     backgroundColor: '#16181d',
+    show: false, // hold off until the renderer has painted (no white flash)
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -38,6 +39,7 @@ function createWindow() {
       sandbox: false,
     },
   });
+  win.once('ready-to-show', () => win.show());
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 
